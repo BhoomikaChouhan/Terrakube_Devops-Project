@@ -1,0 +1,55 @@
+pipeline {
+  agent any
+  environment {
+    AWS_REGION = "ap-south-1"
+    ECR_URL = "<your ECR repo URL>"
+  }
+  stages {
+    stage('Clone') {
+      steps {
+        git 'https://github.com/your-repo'
+      }
+    }
+
+    stage('Test') {
+      steps {
+        sh 'npm install'
+        sh 'npm test'
+      }
+    }
+
+    stage('SonarQube') {
+      steps {
+        withSonarQubeEnv('SonarServer') {
+          sh 'sonar-scanner'
+        }
+      }
+    }
+
+    stage('Docker Build & Push') {
+      steps {
+        sh '''
+        docker build -t $ECR_URL:latest .
+        aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
+        docker push $ECR_URL:latest
+        '''
+      }
+    }
+
+    stage('Deploy to EKS') {
+      steps {
+        sh '''
+        aws eks update-kubeconfig --region $AWS_REGION --name bhoomika-eks
+        kubectl apply -f k8s/
+        '''
+      }
+    }
+
+    stage('Notify') {
+      steps {
+        slackSend(channel: '#devops', message: 'Deployed Successfully 🎉')
+      }
+    }
+  }
+}
+
